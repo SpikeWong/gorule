@@ -80,6 +80,18 @@ var[anotherVar]
 var["fie" + "ld"].field[42 - var2][0]
 ```
 
+## Functions
+It is possible to call custom-defined functions from within expressions.
+
+Examples:
+
+```
+rand()
+floor(42)
+min(4, 3, 12, max(1, 3, 3))
+len("te" + "xt")
+```
+
 ## Literals
 
 Any literal can be defined within expressions. 
