@@ -30,7 +30,6 @@ jobs:
         with:
           path-to-profile: profile.cov
           flag-name: Go-${{ matrix.go }}
-          parallel: true
 
   # notifies that all test jobs are finished.
   finish:
