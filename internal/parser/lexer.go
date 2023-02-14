@@ -25,15 +25,20 @@ type Lexer struct {
 	nextTokenInfo Token
 
 	variables map[string]interface{}
+	functions map[string]ExpressionFunction
 }
 
-func NewLexer(src string, variables map[string]interface{}) *Lexer {
+func NewLexer(src string, variables map[string]interface{}, functions map[string]ExpressionFunction) *Lexer {
 	if variables == nil {
 		variables = map[string]interface{}{}
+	}
+	if functions == nil {
+		functions = map[string]ExpressionFunction{}
 	}
 
 	lexer := &Lexer{
 		variables: variables,
+		functions: functions,
 	}
 
 	fset := token.NewFileSet()

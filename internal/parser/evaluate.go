@@ -4,7 +4,11 @@ import (
 	"runtime"
 )
 
-func Evaluate(str string, variables map[string]interface{}) (result interface{}, err error) {
+func Evaluate(
+	str string,
+	variables map[string]interface{},
+	functions map[string]ExpressionFunction,
+) (result interface{}, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -14,7 +18,7 @@ func Evaluate(str string, variables map[string]interface{}) (result interface{},
 		}
 	}()
 
-	lexer := NewLexer(str, variables)
+	lexer := NewLexer(str, variables, functions)
 	yyNewParser().Parse(lexer)
 	return lexer.Result(), nil
 }

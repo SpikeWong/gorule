@@ -76,6 +76,8 @@ expr
   | varAccess
   | expr '?' expr ':' expr { if asBool($1) { $$ = $3 } else { $$ = $5 } }
   | '(' expr ')'           { $$ = $2 }
+  | IDENT '(' ')'          { $$ = callFunction(yylex.(*Lexer).functions, $1.literal, []interface{}{}) }
+  | IDENT '(' exprList ')' { $$ = callFunction(yylex.(*Lexer).functions, $1.literal, $3) }
   ;
 
 literal

@@ -3,10 +3,11 @@ package gorule
 import (
 	"errors"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"log"
 	"os"
 	"sync"
+
+	"github.com/davecgh/go-spew/spew"
 
 	"github.com/spikewong/gorule/internal/parser"
 )
@@ -32,7 +33,7 @@ type Option func(*Engine)
 
 // NewEngine initializes engine with options
 // by default SkipBadRuleDuringMatch is false, which means will return error if error
-// or non-boolean value encountered during Match
+// or non-boolean value encountered during Match.
 func NewEngine(opts ...Option) *Engine {
 	engine := &Engine{
 		rules:  make(map[string]*Rule),
@@ -47,21 +48,21 @@ func NewEngine(opts ...Option) *Engine {
 	return engine
 }
 
-// WithConfig sets config for engine
+// WithConfig sets config for engine.
 func WithConfig(config *Config) Option {
 	return func(e *Engine) {
 		e.config = config
 	}
 }
 
-// WithLogger sets logger for engine
+// WithLogger sets logger for engine.
 func WithLogger(logger *log.Logger) Option {
 	return func(e *Engine) {
 		e.logger = logger
 	}
 }
 
-// AddRule adds rule into engine, return error if rule name exists
+// AddRule adds rule into engine, return error if rule name exists.
 func (e *Engine) AddRule(rule *Rule) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -77,19 +78,19 @@ func (e *Engine) AddRule(rule *Rule) error {
 	return nil
 }
 
-// Match iterates through all the rules of the engine and will return the matching rules
-func (e *Engine) Match(input map[string]interface{}) ([]Rule, error) {
+// Match iterates through all the rules of the engine and will return the matching rules.
+func (e *Engine) Match(vars map[string]interface{}, functions map[string]parser.ExpressionFunction) ([]Rule, error) {
 	matchedRules := make([]Rule, 0)
 
 	for _, r := range e.rules {
-		res, err := parser.Evaluate(r.condition, input)
+		res, err := parser.Evaluate(r.condition, vars, functions)
 		matched, ok := res.(bool)
 		if !e.config.SkipBadRuleDuringMatch {
 			if err != nil {
 				e.logger.Printf("Error: rule %s returned unexpected error during match: %v", r.Name(), err)
 				return nil, fmt.Errorf("unexpected error occured during match: %w", err)
 			} else if !ok {
-				e.logger.Printf("Error: rule %s returned non-boolean value with input %v", r.Name(), spew.Sdump(input))
+				e.logger.Printf("Error: rule %s returned non-boolean value with vars %v", r.Name(), spew.Sdump(vars))
 				return nil, fmt.Errorf("%s: %w", r.Name(), ErrNonBooleanResult)
 			}
 		}

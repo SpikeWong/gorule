@@ -1,12 +1,16 @@
 package gorule
 
 import (
+	"errors"
 	"io"
 	"log"
 	"os"
 	"reflect"
+	"regexp"
 	"sync"
 	"testing"
+
+	"github.com/spikewong/gorule/internal/parser"
 )
 
 func TestNewEngine(t *testing.T) {
@@ -112,7 +116,7 @@ func TestEngine_AddRule(t *testing.T) {
 	}
 }
 
-func TestEngine_Match(t *testing.T) {
+func TestEngine_MatchWithoutFunctions(t *testing.T) {
 	type fields struct {
 		mu     sync.Mutex
 		rules  map[string]*Rule
@@ -120,7 +124,8 @@ func TestEngine_Match(t *testing.T) {
 		logger *log.Logger
 	}
 	type args struct {
-		input map[string]interface{}
+		vars      map[string]interface{}
+		functions map[string]parser.ExpressionFunction
 	}
 
 	badGradeRule := NewRule(
@@ -155,7 +160,7 @@ func TestEngine_Match(t *testing.T) {
 				config: &Config{SkipBadRuleDuringMatch: false},
 				logger: log.New(os.Stdout, "", log.LstdFlags),
 			},
-			args:    args{input: map[string]interface{}{"grade": 30}},
+			args:    args{vars: map[string]interface{}{"grade": 30}},
 			wantErr: false,
 			want:    []Rule{*badGradeRule},
 		},
@@ -167,7 +172,7 @@ func TestEngine_Match(t *testing.T) {
 				config: &Config{SkipBadRuleDuringMatch: false},
 				logger: log.New(os.Stdout, "", log.LstdFlags),
 			},
-			args:    args{input: map[string]interface{}{"grade": 50}},
+			args:    args{vars: map[string]interface{}{"grade": 50}},
 			wantErr: false,
 			want:    []Rule{},
 		},
@@ -179,7 +184,7 @@ func TestEngine_Match(t *testing.T) {
 				config: &Config{SkipBadRuleDuringMatch: false},
 				logger: log.New(os.Stdout, "", log.LstdFlags),
 			},
-			args:    args{input: map[string]interface{}{}},
+			args:    args{vars: map[string]interface{}{}},
 			wantErr: true,
 		},
 	}
@@ -191,7 +196,108 @@ func TestEngine_Match(t *testing.T) {
 				config: tt.fields.config,
 				logger: tt.fields.logger,
 			}
-			got, err := e.Match(tt.args.input)
+			got, err := e.Match(tt.args.vars, tt.args.functions)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Errorf("the length of got and want are not euqal, got: %d, want: %d", len(got), len(tt.want))
+				return
+			}
+			for i, v := range got {
+				if v.Name() != tt.want[i].Name() {
+					t.Errorf("matched rule not equal, got: %s, want: %s", v.Name(), tt.want[i].Name())
+					return
+				}
+			}
+		})
+	}
+}
+
+func TestEngine_MatchWithFunctions(t *testing.T) {
+	type fields struct {
+		mu     sync.Mutex
+		rules  map[string]*Rule
+		config *Config
+		logger *log.Logger
+	}
+	type args struct {
+		vars      map[string]interface{}
+		functions map[string]parser.ExpressionFunction
+	}
+
+	regexRule := NewRule(
+		"match string based on regex",
+		`matches(text, regex)`,
+		func(i interface{}) (interface{}, error) {
+			return "matched", nil
+		},
+	)
+	goodFunctions := map[string]parser.ExpressionFunction{
+		"matches": func(args ...interface{}) (interface{}, error) {
+			return regexp.MustCompile(args[1].(string)).MatchString(args[0].(string)), nil
+		},
+	}
+	badFunctions := map[string]parser.ExpressionFunction{
+		"matches": func(args ...interface{}) (interface{}, error) {
+			return nil, errors.New("bad function")
+		},
+	}
+
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []Rule
+		wantErr bool
+	}{
+		{
+			name: "good function",
+			fields: fields{
+				mu:     sync.Mutex{},
+				rules:  map[string]*Rule{regexRule.Name(): regexRule},
+				config: &Config{SkipBadRuleDuringMatch: false},
+				logger: log.New(os.Stdout, "", log.LstdFlags),
+			},
+			args: args{
+				vars: map[string]interface{}{
+					"text":  "hello world",
+					"regex": "hello.*",
+				},
+				functions: goodFunctions,
+			},
+			want:    []Rule{*regexRule},
+			wantErr: false,
+		},
+		{
+			name: "bad function",
+			fields: fields{
+				mu:     sync.Mutex{},
+				rules:  map[string]*Rule{regexRule.Name(): regexRule},
+				config: &Config{SkipBadRuleDuringMatch: false},
+				logger: log.New(os.Stdout, "", log.LstdFlags),
+			},
+			args: args{
+				vars: map[string]interface{}{
+					"text":  "hello world",
+					"regex": "hello.*",
+				},
+				functions: badFunctions,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &Engine{
+				mu:     tt.fields.mu,
+				rules:  tt.fields.rules,
+				config: tt.fields.config,
+				logger: tt.fields.logger,
+			}
+			got, err := e.Match(tt.args.vars, tt.args.functions)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Match() error = %v, wantErr %v", err, tt.wantErr)
 				return

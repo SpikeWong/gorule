@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"runtime"
 	"strconv"
 )
 
@@ -11,6 +12,10 @@ func init() {
 	yyDebug = 0           // can be increased for debugging the generated parser
 	yyErrorVerbose = true // make sure to get better errors than just "syntax error"
 }
+
+// ExpressionFunction can be called from within expressions.
+// The returned object needs to have one of the following types: `nil`, `bool`, `int`, `float64`, `string`, `[]interface{}` or `map[string]interface{}`.
+type ExpressionFunction = func(args ...interface{}) (interface{}, error)
 
 func typeOf(val interface{}) string {
 	if val == nil {
@@ -26,8 +31,6 @@ func typeOf(val interface{}) string {
 		return "number"
 	case reflect.String:
 		return "string"
-	case reflect.Struct:
-		return "struct"
 	}
 
 	if _, ok := val.([]interface{}); ok {
@@ -487,4 +490,38 @@ func arrayContains(arr interface{}, val interface{}) bool {
 		}
 	}
 	return false
+}
+
+func callFunction(functions map[string]ExpressionFunction, name string, args []interface{}) interface{} {
+	f, ok := functions[name]
+	if !ok {
+		panic(fmt.Errorf("syntax error: no such function %q", name))
+	}
+
+	res, err := callAndRecover(f, args)
+	if err != nil {
+		panic(fmt.Errorf("function error: %q - %w", name, err))
+	}
+	return res
+}
+
+func callAndRecover(f ExpressionFunction, args []interface{}) (_ interface{}, retErr error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+
+		_, ok := r.(runtime.Error)
+		if ok {
+			panic(r)
+		}
+
+		if err, ok := r.(error); ok {
+			retErr = err
+		} else {
+			retErr = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return f(args...)
 }

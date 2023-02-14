@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -43,40 +44,40 @@ func Test_Literals_Hex(t *testing.T) {
 	assertEvaluation(t, nil, 23205, "0x5AA5")
 	assertEvaluation(t, nil, 65535, "0xFFFF") // 16bit
 
-	result, err := Evaluate("0x7FFFFFFF", nil) // 32bit, leading zero
+	result, err := Evaluate("0x7FFFFFFF", nil, nil) // 32bit, leading zero
 	if assert.NoError(t, err) {
 		assert.Equal(t, int64(2147483647), int64(result.(int)))
 	}
 
 	if BitSizeOfInt == 32 {
-		result, err = Evaluate("0x80000000", nil) // 32bit, leading one (highest negative)
+		result, err = Evaluate("0x80000000", nil, nil) // 32bit, leading one (highest negative)
 		if assert.NoError(t, err) {
 			assert.Equal(t, int32(-2147483648), int32(result.(int)))
 		}
 
-		result, err = Evaluate("0xFFFFFFFF", nil) // 32bit, leading one (lowest negative)
+		result, err = Evaluate("0xFFFFFFFF", nil, nil) // 32bit, leading one (lowest negative)
 		if assert.NoError(t, err) {
 			assert.Equal(t, int32(-1), int32(result.(int)))
 		}
 	}
 
 	if BitSizeOfInt >= 64 {
-		result, err = Evaluate("0xFFFFFFFF", nil) // 32bit
+		result, err = Evaluate("0xFFFFFFFF", nil, nil) // 32bit
 		if assert.NoError(t, err) {
 			assert.Equal(t, int64(4294967295), int64(result.(int)))
 		}
 
-		result, err = Evaluate("0x7FFFFFFFFFFFFFFF", nil) // 64bit, leading zero (highest positive)
+		result, err = Evaluate("0x7FFFFFFFFFFFFFFF", nil, nil) // 64bit, leading zero (highest positive)
 		if assert.NoError(t, err) {
 			assert.Equal(t, int64(9223372036854775807), int64(result.(int)))
 		}
 
-		result, err = Evaluate("0x8000000000000000", nil) // 64bit, leading one (highest negative)
+		result, err = Evaluate("0x8000000000000000", nil, nil) // 64bit, leading one (highest negative)
 		if assert.NoError(t, err) {
 			assert.Equal(t, int64(-9223372036854775808), int64(result.(int)))
 		}
 
-		result, err = Evaluate("0xFFFFFFFFFFFFFFFF", nil) // 64bit, leading one (lowest negative)
+		result, err = Evaluate("0xFFFFFFFFFFFFFFFF", nil, nil) // 64bit, leading one (lowest negative)
 		if assert.NoError(t, err) {
 			assert.Equal(t, int64(-1), int64(result.(int)))
 		}
@@ -537,7 +538,7 @@ func Test_AndOr_InvalidTypes(t *testing.T) {
 			expectedErr = fmt.Sprintf("type error: required bool, but was %s", nonBoolType)
 			assertEvalError(t, vars, expectedErr, t1+"||"+t2)
 
-			result, err := Evaluate(t1+"||"+t2, vars)
+			result, err := Evaluate(t1+"||"+t2, vars, nil)
 			assert.Errorf(t, err, "%v || %v\n", t1, t2)
 			assert.Nil(t, result)
 		}
@@ -1345,6 +1346,126 @@ func Test_Slicing_InvalidTypes(t *testing.T) {
 	}
 }
 
+func Test_FunctionCall_Simple(t *testing.T) {
+	var shouldReturn interface{}
+	var expectedArg interface{}
+
+	functions := map[string]ExpressionFunction{
+		"func1": func(args ...interface{}) (interface{}, error) {
+			return shouldReturn, nil
+		},
+		"func2": func(args ...interface{}) (interface{}, error) {
+			assert.Equal(t, expectedArg, args[0])
+			return args[0], nil
+		},
+		"func3": func(args ...interface{}) (interface{}, error) {
+			return []interface{}{len(args), args}, nil
+		},
+	}
+
+	tests := map[string]interface{}{`nil`: nil, `true`: true, `false`: false, `42`: 42, `4.2`: 4.2, `"text"`: "text", `"0"`: "0"}
+
+	for expr, expected := range tests {
+		shouldReturn = expected
+		assertEvaluationFuncs(t, nil, functions, expected, `func1()`)
+		expectedArg = expected
+		assertEvaluationFuncs(t, nil, functions, expected, `func2(`+expr+`)`)
+	}
+
+	expectedReturn := []interface{}{6, []interface{}{true, false, 42, 4.2, "text", "0"}}
+	assertEvaluationFuncs(t, nil, functions, expectedReturn, `func3(true, false, 42, 4.2, "text", "0")`)
+}
+
+func Test_FunctionCall_Nested(t *testing.T) {
+	functions := map[string]ExpressionFunction{
+		"func": func(args ...interface{}) (interface{}, error) {
+			var allArgs = make([]interface{}, 0)
+
+			for _, arg := range args {
+				multi, ok := arg.([]interface{})
+				if ok {
+					allArgs = append(allArgs, multi...)
+				} else {
+					allArgs = append(allArgs, arg)
+				}
+			}
+			return allArgs, nil
+		},
+	}
+
+	assertEvaluationFuncs(t, nil, functions, []interface{}{1, 2, 3, 4}, `func(1, 2, 3, 4)`)
+	assertEvaluationFuncs(t, nil, functions, []interface{}{1, 2, 3, 4}, `func([1, 2], [3], 4)`)
+	assertEvaluationFuncs(t, nil, functions, []interface{}{1, 2, 3, 4}, `func(func(1, 2, 3, 4))`)
+	assertEvaluationFuncs(t, nil, functions, []interface{}{1, 2, 3, 4}, `func(func(1, 2), func(3, 4))`)
+	assertEvaluationFuncs(t, nil, functions, []interface{}{1, 2, 3, 4}, `func(func(1, func(2), func()), func(), func(3, 4))`)
+}
+
+func Test_FunctionCall_Variables(t *testing.T) {
+	vars := getTestVars()
+
+	functions := map[string]ExpressionFunction{
+		"func": func(args ...interface{}) (interface{}, error) {
+			assert.Len(t, args, 2)
+			varName := args[0].(string)
+			varValue := args[1]
+			assert.Equal(t, vars[varName], varValue)
+			return varValue, nil
+		},
+	}
+	for name, val := range vars {
+		assertEvaluationFuncs(t, vars, functions, val, `func("`+name+`", `+name+` )`)
+	}
+
+	// function with same name as variable:
+	vars["func"] = "foo"
+	assertEvaluationFuncs(t, vars, functions, "foo", `func("func", func)`)
+}
+
+func Test_FunctionCall_Errors(t *testing.T) {
+	// panic(error) should be indistinguishable from returning an error
+	functions := map[string]ExpressionFunction{
+		"func1": func(args ...interface{}) (interface{}, error) {
+			return nil, errors.New("simulated error")
+		},
+		"func2": func(args ...interface{}) (interface{}, error) {
+			panic(errors.New("simulated error"))
+		},
+		"func3": func(args ...interface{}) (interface{}, error) {
+			panic("error string")
+		},
+		"func4": func(args ...interface{}) (interface{}, error) {
+			panic(42)
+		},
+		"func5": func(args ...interface{}) (interface{}, error) {
+			var s []int
+			return s[1], nil // runtime panic
+		},
+	}
+
+	assertEvalErrorFuncs(t, nil, functions, "function error: \"func1\" - simulated error", "func1()")
+	assertEvalErrorFuncs(t, nil, functions, "function error: \"func2\" - simulated error", "func2()")
+	assertEvalErrorFuncs(t, nil, functions, "function error: \"func3\" - panic: error string", "func3()")
+	assertEvalErrorFuncs(t, nil, functions, "function error: \"func4\" - panic: 42", "func4()")
+
+	assert.Panics(t, func() {
+		_, _ = Evaluate("func5()", nil, functions)
+	})
+}
+
+func Test_InvalidFunctionCalls(t *testing.T) {
+	vars := map[string]interface{}{"func": nil}
+	functions := map[string]ExpressionFunction{
+		"func": func(args ...interface{}) (interface{}, error) {
+			return nil, nil
+		},
+	}
+
+	assertEvalErrorFuncs(t, vars, functions, "syntax error: no such function \"noFunc\"", `noFunc()`)
+	assertEvalErrorFuncs(t, vars, functions, "syntax error: unexpected $end", `func(`)
+	assertEvalErrorFuncs(t, vars, functions, "syntax error: unexpected ')'", `func)`)
+	assertEvalErrorFuncs(t, vars, functions, "syntax error: unexpected ','", `func((1, 2))`)
+}
+
 func Test_Ternary_Simple(t *testing.T) {
 	assertEvaluation(t, nil, 1, `true ? 1 : 2`)
 	assertEvaluation(t, nil, 2, `false ? 1 : 2`)
@@ -1390,6 +1511,29 @@ func Test_Ternary_RightAssociativity(t *testing.T) {
 	assertEvaluation(t, nil, 2, "false ? 1 : true ? 2 : false ? 3 : 4") // In case of left-associativity, this would not compile (1 is not a boolean)
 }
 
+func Test_Ternary_NoShortCircuit(t *testing.T) {
+	var func1Calls, func2Calls int
+
+	functions := map[string]ExpressionFunction{
+		"func1": func(args ...interface{}) (interface{}, error) {
+			func1Calls++
+			return 1, nil
+		},
+		"func2": func(args ...interface{}) (interface{}, error) {
+			func2Calls++
+			return 2, nil
+		},
+	}
+
+	assertEvaluationFuncs(t, nil, functions, 1, `true ? func1() : func2()`)
+	assert.Equal(t, 1, func1Calls)
+	assert.Equal(t, 1, func2Calls)
+
+	assertEvaluationFuncs(t, nil, functions, 2, `false ? func1() : func2()`)
+	assert.Equal(t, 2, func1Calls)
+	assert.Equal(t, 2, func2Calls)
+}
+
 func Test_Ternary_InvalidSyntax(t *testing.T) {
 	assertEvalError(t, nil, `syntax error: unexpected $end`, `true ? 1 :`)
 	assertEvalError(t, nil, `syntax error: unexpected ':'`, `true ? : 2`)
@@ -1407,7 +1551,15 @@ func Test_Ternary_InvalidTypes(t *testing.T) {
 
 func assertEvaluation(t *testing.T, variables map[string]interface{}, expected interface{}, str string) {
 	t.Helper()
-	result, err := Evaluate(str, variables)
+	result, err := Evaluate(str, variables, nil)
+	if assert.NoError(t, err) {
+		assert.Equal(t, expected, result)
+	}
+}
+
+func assertEvaluationFuncs(t *testing.T, variables map[string]interface{}, functions map[string]ExpressionFunction, expected interface{}, str string) {
+	t.Helper()
+	result, err := Evaluate(str, variables, functions)
 	if assert.NoError(t, err) {
 		assert.Equal(t, expected, result)
 	}
@@ -1415,7 +1567,12 @@ func assertEvaluation(t *testing.T, variables map[string]interface{}, expected i
 
 func assertEvalError(t *testing.T, variables map[string]interface{}, expectedErr string, str string) {
 	t.Helper()
-	result, err := Evaluate(str, variables)
+	assertEvalErrorFuncs(t, variables, nil, expectedErr, str)
+}
+
+func assertEvalErrorFuncs(t *testing.T, variables map[string]interface{}, functions map[string]ExpressionFunction, expectedErr string, str string) {
+	t.Helper()
+	result, err := Evaluate(str, variables, functions)
 	if assert.Error(t, err) {
 		assert.Equal(t, expectedErr, err.Error())
 	}

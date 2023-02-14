@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/spikewong/gorule"
+	"github.com/spikewong/gorule/internal/parser"
 	"log"
 	"os"
 )
@@ -36,7 +37,7 @@ func main() {
 		)
 		vipRule = gorule.NewRule(
 			"high level vip rule",
-			"vipLevel >= 10 && !inBlacklist",
+			"isPremiumVip(vipLevel) && !inBlacklist",
 			func(i interface{}) (interface{}, error) {
 				return 30, nil
 			},
@@ -53,11 +54,20 @@ func main() {
 		}
 	}
 
-	matchedRules, err := discountEngine.Match(map[string]interface{}{
-		"inBlacklist": userInBlackList.inBlackList,
-		"balance":     userInBlackList.balance,
-		"vipLevel":    userInBlackList.vipLevel,
-	})
+	isPremiumVip := func(args ...interface{}) (interface{}, error) {
+		vipLevel := args[0].(int)
+
+		return vipLevel > 5, nil
+	}
+
+	matchedRules, err := discountEngine.Match(
+		map[string]interface{}{
+			"inBlacklist": userInBlackList.inBlackList,
+			"balance":     userInBlackList.balance,
+			"vipLevel":    userInBlackList.vipLevel,
+		},
+		map[string]parser.ExpressionFunction{"isPremiumVip": isPremiumVip},
+	)
 	if err != nil {
 		fmt.Printf("encountered error when cal blacklist discount: %v \n", err)
 	}
@@ -67,11 +77,14 @@ func main() {
 		blacklistDiscount += discount
 	}
 
-	matchedRules, err = discountEngine.Match(map[string]interface{}{
-		"inBlacklist": vip.inBlackList,
-		"balance":     vip.balance,
-		"vipLevel":    vip.vipLevel,
-	})
+	matchedRules, err = discountEngine.Match(
+		map[string]interface{}{
+			"inBlacklist": vip.inBlackList,
+			"balance":     vip.balance,
+			"vipLevel":    vip.vipLevel,
+		},
+		map[string]parser.ExpressionFunction{"isPremiumVip": isPremiumVip},
+	)
 	if err != nil {
 		fmt.Printf("encountered error when cal vip discount: %v \n", err)
 	}
