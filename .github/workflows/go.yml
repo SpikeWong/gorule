@@ -20,8 +20,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: ${{ matrix.go }}
-      
+            go-version: ${{ matrix.go }}
       - uses: actions/checkout@v3
       - run: go test -v -coverprofile=profile.cov ./...
 
