@@ -15,7 +15,6 @@ jobs:
         go:
           - '1.19'
           - '1.18'
-          - '1.17'
 
     steps:
       - uses: actions/setup-go@v3
