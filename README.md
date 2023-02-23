@@ -16,17 +16,29 @@ engine := gorule.NewEngine(
     gorule.WithLogger(log.New(os.Stdout, "", log.LstdFlags)),
     gorule.WithConfig(&gorule.Config{SkipBadRuleDuringMatch: false}),
 )
-rule := gorule.NewRule("example rule name", "age > 10 && age < 18", func(i interface{}) (interface{}, error) {
-    return "teenager", nil
-})
+rule := gorule.NewRule(
+	"example rule name", "isAgeMatched(age) && undergraduate", 
+	func(i interface{}) (interface{}, error) {
+		return "teenager", nil
+	})
 
 err := engine.AddRule(rule)
 if err != nil {
 	fmt.Printf("add rule error: %v", err)
 }
 
+isAgeMatched := func(args ...interface{}) (interface{}, error) {
+	age := args[0].(int)
+	
+	return age > 10 && age < 18, nil
+}
 
-rules, err := engine.Match(map[string]interface{}{ "age": 12 })
+
+rules, err := engine.Match(
+	map[string]interface{}{ "age": 12, "undergraduate": true },
+	map[string]parser.ExpressionFunction{
+        "isAgeMatched": isAgeMatched,
+    })
 if err != nil {
     fmt.Printf("engine match error: %v", err)
 }
@@ -66,6 +78,18 @@ var["field"]
 var[anotherVar]
 
 var["fie" + "ld"].field[42 - var2][0]
+```
+
+## Functions
+It is possible to call custom-defined functions from within expressions.
+
+Examples:
+
+```
+rand()
+floor(42)
+min(4, 3, 12, max(1, 3, 3))
+len("te" + "xt")
 ```
 
 ## Literals

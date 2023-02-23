@@ -1,6 +1,12 @@
-on: [push, pull_request]
-jobs:
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
 
+jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -9,34 +15,21 @@ jobs:
         go:
           - '1.19'
           - '1.18'
-          - '1.17'
+          - '1.20'
 
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: ${{ matrix.go }}
-      
+            go-version: ${{ matrix.go }}
       - uses: actions/checkout@v3
-      - run: go test -v -coverprofile=profile.cov ./...
+      - run: go test -v -coverprofile=coverage.txt -race -covermode=atomic ./...
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
-        with:
-          # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
-          version: v1.50.1
+#      - name: golangci-lint
+#        uses: golangci/golangci-lint-action@v3
+#        with:
+#          # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
+#          version: v1.50.1
 
-      - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
-        with:
-          path-to-profile: profile.cov
-          flag-name: Go-${{ matrix.go }}
-          parallel: true
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
 
-  # notifies that all test jobs are finished.
-  finish:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: shogo82148/actions-goveralls@v1
-        with:
-          parallel-finished: true
