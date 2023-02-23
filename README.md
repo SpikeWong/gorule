@@ -1,5 +1,7 @@
 GoRule
 =====
+[![codecov](https://codecov.io/gh/SpikeWong/gorule/branch/master/graph/badge.svg?token=0GT7UT61NS)](https://codecov.io/gh/SpikeWong/gorule)
+![workflow status](https://github.com/SpikeWong/gorule/actions/workflows/go.yml/badge.svg)    
 Gorule is a rules engine written based on [goyacc](https://pkg.go.dev/golang.org/x/tools/cmd/goyacc). The rule engine is mainly used to replace complex and frequently changed hard-coded conditional judgement scenarios. The rules defining the trigger conditions are decoupled from the program code and can be stored in files, database records etc. and loaded at runtime for parsing. The program provides input to the rules engine, which eventually matches and returns a collection of successful rules.
 
 
